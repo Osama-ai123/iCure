@@ -1,0 +1,7 @@
+clean_data.csv
+data.xls
+__pycache__/
+*.pyc
+.env
+algorithimvenv/
+*.csv
