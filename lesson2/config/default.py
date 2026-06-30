@@ -1,2 +1,0 @@
-DEBUG=False
-PORT=8000
