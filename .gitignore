@@ -5,3 +5,6 @@ __pycache__/
 .env
 algorithimvenv/
 *.csv
+*.npy
+*.bin
+~$*
