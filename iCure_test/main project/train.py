@@ -41,3 +41,4 @@ print("Saved: embeddings.npy + sample_data.csv")
 import numpy as np
 embeddings = np.load('embeddings_250K.npy.npy')
 print("Size in MB:", round(embeddings.nbytes / 1024 / 1024, 1))
+
