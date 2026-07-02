@@ -4,7 +4,9 @@ import os
 
 app = Flask(__name__)
 
-# Route 1: Health check
+# تخزين الـ sessions بالذاكرة
+sessions = {}
+
 @app.route('/', methods=['GET'])
 def health_check():
     return jsonify({
@@ -12,7 +14,6 @@ def health_check():
         'version': '1.0'
     })
 
-# Route 2: السؤال الطبي
 @app.route('/ask', methods=['POST'])
 def ask_question():
     data = request.get_json()
@@ -21,27 +22,47 @@ def ask_question():
         return jsonify({
             'error': 'Please provide a question',
             'example': {
-                'question': 'What is the treatment?',
-                'history': [
-                    {'role': 'user', 'content': 'What are symptoms of diabetes?'},
-                    {'role': 'assistant', 'content': 'Symptoms include frequent urination...'}
-                ]
+                'question': 'ما هي أعراض فقر الدم؟',
+                'session_id': 'any-unique-id'
             }
         }), 400
 
     question = data['question'].strip()
-    history = data.get('history', [])  # لو ما في history يرجع قائمة فاضية
+    session_id = data.get('session_id', 'default')
 
     if not question:
         return jsonify({'error': 'Question cannot be empty'}), 400
 
+    # جيب الـ history تبع الـ session
+    if session_id not in sessions:
+        sessions[session_id] = []
+    
+    history = sessions[session_id]
+
+    # اطلب الجواب
     answer = ask(question, history)
+
+    # حدّث الـ history تلقائياً
+    sessions[session_id].append({'role': 'user', 'content': question})
+    sessions[session_id].append({'role': 'assistant', 'content': answer})
+
+    # خلّي الـ history بآخر 6 رسائل بس (3 أسئلة وأجوبة)
+    sessions[session_id] = sessions[session_id][-6:]
 
     return jsonify({
         'question': question,
         'answer': answer,
+        'session_id': session_id,
         'status': 'success'
     }), 200
+
+@app.route('/clear', methods=['POST'])
+def clear_session():
+    data = request.get_json()
+    session_id = data.get('session_id', 'default')
+    if session_id in sessions:
+        sessions.pop(session_id)
+    return jsonify({'status': 'session cleared', 'session_id': session_id})
 
 if __name__ == '__main__':
     app.run(debug=False, host='0.0.0.0', port=5000)

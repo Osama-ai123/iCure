@@ -36,36 +36,37 @@ def search(question, top_k=5):
 
 def ask(question, history=[], retries=3):
     
-    # لو في history، نطلب من Gemini يوضح السؤال أولاً
+    # دايماً نطلب من Gemini يوضح ويوحّد المصطلحات
+    history_text = ""
     if history:
-        history_text = ""
         for msg in history:
             role = "User" if msg['role'] == 'user' else "Assistant"
             history_text += f"{role}: {msg['content']}\n"
-        
-        clarify_prompt = f"""Given this conversation:
+
+    clarify_prompt = f"""Given this conversation (if any):
 {history_text}
-User's new question: {question}
+User's question: {question}
 
-Rewrite the user's question as a standalone, clear medical question.
-Return ONLY the rewritten question, nothing else."""
+Rewrite the question as a standalone, clear medical question in English.
+- Replace any foreign medical terms written in Arabic script with their proper English equivalents (e.g. "انيميا" → "anemia", "ديابيتس" → "diabetes")
+- If there is conversation history, resolve any references like "it", "this", "them" based on context
+- Return ONLY the rewritten question in English, nothing else."""
 
-        for attempt in range(retries):
-            try:
-                clarified = client.models.generate_content(
-                    model='gemini-2.5-flash',
-                    contents=clarify_prompt
-                ).text.strip()
-                break
-            except:
-                clarified = question
-        
-        search_question = clarified
-    else:
-        search_question = question
+    for attempt in range(retries):
+        try:
+            search_question = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=clarify_prompt
+            ).text.strip()
+            break
+        except:
+            search_question = question
 
     # ابحث بالسؤال الواضح
     context_list = search(search_question)
+    print(f"Search question: {search_question}")
+    for i, r in enumerate(context_list):
+        print(f"Result {i+1}: {r['question'][:80]}")
 
     context = ""
     for i, item in enumerate(context_list):
@@ -81,6 +82,7 @@ Return ONLY the rewritten question, nothing else."""
 Use ONLY the following medical information to answer the question.
 If the answer is not in the provided context, say "I don't have enough information about this topic."
 Always recommend consulting a doctor for medical decisions.
+Provide a detailed, comprehensive answer based on the context. Do not give short or vague answers.
 Answer in the same language as the question.
 
 Medical Context:
@@ -91,8 +93,6 @@ Previous Conversation:
 
 Question: {question}
 
-search_question = clarified
-print(f"Clarified question: {search_question}")  # أضف هذا
 
 Answer:"""
 
