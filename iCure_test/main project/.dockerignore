@@ -1,0 +1,9 @@
+*.csv
+*.npy
+*.bin
+*.xls
+algorithimvenv/
+__pycache__/
+*.pyc
+.env
+.git
