@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>iCure — المساعد الطبي</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg: #eef1f5;
+      --card: #ffffff;
+      --border: #d8dee7;
+      --text: #263445;
+      --muted: #7a8798;
+      --accent: #4a6079;
+      --accent-hover: #3b4e63;
+      --accent-soft: #f0f3f7;
+      --error: #a3423a;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 24px 16px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Cairo", "Segoe UI", Tahoma, sans-serif;
+      line-height: 1.8;
+    }
+
+    .wrapper {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 36px;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: 1px;
+    }
+
+    .subtitle-ar {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .subtitle-en {
+      margin: 2px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+      direction: ltr;
+      opacity: 0.85;
+    }
+
+    #chat {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px;
+      height: calc(100vh - 250px);
+      min-height: 400px;
+      overflow-y: auto;
+      margin-bottom: 14px;
+    }
+
+    .empty-state {
+      color: var(--muted);
+      text-align: center;
+      margin-top: 25%;
+      font-size: 15px;
+      line-height: 2;
+    }
+
+    .empty-state .en {
+      direction: ltr;
+      display: inline-block;
+      font-size: 14px;
+      opacity: 0.8;
+    }
+
+    .msg {
+      width: fit-content;
+      max-width: 85%;
+      padding: 12px 16px;
+      border-radius: 12px;
+      margin-bottom: 14px;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+
+    .msg.user {
+      background: var(--accent);
+      color: #fff;
+      margin-inline-start: auto;
+    }
+
+    .msg.bot {
+      background: var(--accent-soft);
+      border: 1px solid var(--border);
+      color: var(--text);
+      margin-inline-end: auto;
+    }
+
+    .msg.error {
+      background: #fbeceb;
+      color: var(--error);
+      margin-inline-end: auto;
+    }
+
+    .msg.ltr {
+      direction: ltr;
+      text-align: left;
+    }
+
+    .typing {
+      color: var(--muted);
+      font-style: italic;
+      font-size: 14px;
+      margin-bottom: 14px;
+    }
+
+    .input-row {
+      display: flex;
+      gap: 10px;
+    }
+
+    #questionInput {
+      flex: 1;
+      padding: 13px 16px;
+      font-size: 16px;
+      font-family: inherit;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--card);
+      color: var(--text);
+      outline: none;
+    }
+
+    #questionInput:focus {
+      border-color: var(--accent);
+    }
+
+    button {
+      padding: 13px 26px;
+      font-size: 16px;
+      font-family: inherit;
+      font-weight: 600;
+      border: none;
+      border-radius: 10px;
+      background: var(--accent);
+      color: #fff;
+      cursor: pointer;
+    }
+
+    button:hover:not(:disabled) {
+      background: var(--accent-hover);
+    }
+
+    button:disabled {
+      background: #b4bfcc;
+      cursor: not-allowed;
+    }
+
+    #clearBtn {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      font-weight: 400;
+    }
+
+    #clearBtn:hover {
+      background: var(--accent-soft);
+      color: var(--text);
+    }
+
+    footer {
+      text-align: center;
+      margin-top: 14px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="wrapper">
+
+    <header>
+      <h1>iCure</h1>
+      <p class="subtitle-en"><b>Every Question Is a Step Toward Better Health</b></p>
+      <p class="subtitle-ar">نُمكّنك من فهم صحتك</p>
+    </header>
+
+    <div id="chat">
+      <div class="empty-state" id="emptyState">
+        اسأل بحرية. افهم بشكل أفضل. عش بصحة أفضل
+        <br>
+        <span class="en">Ask Freely. Understand Better. Live Healthier</span>
+      </div>
+    </div>
+
+    <div class="input-row">
+      <input type="text" id="questionInput" placeholder="اكتب سؤالك هنا... / Type your question here...">
+      <button id="sendBtn">إرسال</button>
+      <button id="clearBtn">مسح</button>
+    </div>
+
+    <footer>
+      iCure — RAG-based medical assistant · للأغراض التعليمية فقط
+    </footer>
+
+  </div>
+
+  <script>
+    const API_URL = "http://localhost:5000";
+    const SESSION_ID = "web-" + Date.now();
+
+    const chatBox = document.getElementById("chat");
+    const inputField = document.getElementById("questionInput");
+    const sendBtn = document.getElementById("sendBtn");
+    const clearBtn = document.getElementById("clearBtn");
+
+    function isArabic(text) {
+      return /[\u0600-\u06FF]/.test(text);
+    }
+
+    function hideEmptyState() {
+      const el = document.getElementById("emptyState");
+      if (el) el.style.display = "none";
+    }
+
+    function addMessage(text, type) {
+      hideEmptyState();
+
+      const bubble = document.createElement("div");
+      bubble.className = "msg " + type;
+
+      if (!isArabic(text)) {
+        bubble.classList.add("ltr");
+      }
+
+      bubble.textContent = text;
+      chatBox.appendChild(bubble);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function showTyping() {
+      const el = document.createElement("div");
+      el.className = "typing";
+      el.id = "typingIndicator";
+      el.textContent = "جاري البحث في المصادر الطبية...";
+      chatBox.appendChild(el);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function hideTyping() {
+      const el = document.getElementById("typingIndicator");
+      if (el) el.remove();
+    }
+
+    async function sendQuestion() {
+      const question = inputField.value.trim();
+      if (!question) return;
+
+      addMessage(question, "user");
+      inputField.value = "";
+      sendBtn.disabled = true;
+      showTyping();
+
+      try {
+        const response = await fetch(API_URL + "/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question, session_id: SESSION_ID })
+        });
+
+        const data = await response.json();
+        hideTyping();
+
+        if (!response.ok) {
+          addMessage(data.error || "حدث خطأ في الخادم", "error");
+          return;
+        }
+
+        addMessage(data.answer, "bot");
+
+      } catch (err) {
+        hideTyping();
+        addMessage("تعذّر الاتصال بالخادم.", "error");
+        console.error(err);
+      } finally {
+        sendBtn.disabled = false;
+        inputField.focus();
+      }
+    }
+
+    async function clearSession() {
+      try {
+        await fetch(API_URL + "/clear", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: SESSION_ID })
+        });
+      } catch (err) {
+        console.error(err);
+      }
+      chatBox.innerHTML = "";
+      inputField.focus();
+    }
+
+    sendBtn.addEventListener("click", sendQuestion);
+    clearBtn.addEventListener("click", clearSession);
+
+    inputField.addEventListener("keydown", function (event) {
+      if (event.key === "Enter") {
+        sendQuestion();
+      }
+    });
+  </script>
+
+</body>
+</html>
