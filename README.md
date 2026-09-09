@@ -1,21 +1,26 @@
-# iCure — AI-Powered Medical Chatbot API
+# iCure — AI-Powered Medical Chatbot
 
-> A production-ready RAG-based medical chatbot API built end-to-end with Python, Flask, FAISS, and Gemini AI.
+> A full-stack RAG-based medical chatbot built end-to-end with Python, Flask, FAISS, and Gemini AI — with a lightweight bilingual web interface.
 
 ---
 
 ## Overview
 
-iCure is a backend API that answers medical questions in Arabic and English using **Retrieval-Augmented Generation (RAG)**. Instead of relying solely on a language model's general knowledge, iCure retrieves relevant medical information from a curated dataset before generating an answer — making responses more accurate and grounded in real medical data.
+iCure answers medical questions in Arabic and English using **Retrieval-Augmented Generation (RAG)**. Instead of relying solely on a language model's general knowledge, iCure retrieves relevant medical information from a curated dataset before generating an answer — making responses more accurate and grounded in real medical data.
 
-The system supports multi-turn conversations through session-based memory, handles informal Arabic medical terminology, and is fully containerized with Docker and automated through CI/CD.
+The system supports multi-turn conversations through session-based memory, handles informal Arabic medical terminology, ships with a bilingual web interface, and is fully containerized with Docker and automated through CI/CD.
 
 ---
 
 ## Architecture
 
 ```
-User Question (Arabic or English)
+Web Interface (HTML / CSS / JavaScript)
+        │  fetch → JSON
+        ▼
+┌─────────────────────────┐
+│   Flask REST API        │  ← session management, request validation
+└─────────────────────────┘
         │
         ▼
 ┌─────────────────────────┐
@@ -42,7 +47,7 @@ User Question (Arabic or English)
 └─────────────────────────┘
         │
         ▼
-     JSON Response
+     JSON Response → rendered in the browser
 ```
 
 ---
@@ -51,10 +56,11 @@ User Question (Arabic or English)
 
 - **Semantic Search** — finds relevant medical information by meaning, not keyword matching
 - **Multilingual Support** — handles Arabic and English questions in the same system
+- **Bilingual Web Interface** — RTL-first UI that detects the language of each message and sets its text direction automatically
 - **Query Normalization** — resolves follow-up questions ("How do I treat it?") and transliterates informal Arabic medical terms (e.g. "انيميا" → anemia)
 - **Session Memory** — maintains conversation context across multiple exchanges per session
 - **Out-of-scope Detection** — declines non-medical questions gracefully
-- **Fault Tolerance** — automatic retry logic for API failures
+- **Fault Tolerance** — automatic retry logic for API failures, with graceful error states surfaced in the UI
 - **Containerized** — fully Dockerized for consistent deployment anywhere
 - **CI/CD** — automated Docker image build and push via GitHub Actions
 
@@ -64,7 +70,8 @@ User Question (Arabic or English)
 
 | Layer | Technology |
 |---|---|
-| Backend Framework | Python + Flask |
+| Frontend | HTML, CSS, vanilla JavaScript (Fetch API) |
+| Backend Framework | Python + Flask, Flask-CORS |
 | Embedding Model | `paraphrase-multilingual-MiniLM-L12-v2` |
 | Vector Database | FAISS (IndexFlatL2, 250K vectors, 384 dimensions) |
 | Language Model | Gemini 2.5 Flash (via `google-genai`) |
@@ -88,6 +95,32 @@ User Question (Arabic or English)
 - Removed non-medical categories (Medical News, Ecology, Organic Chemistry)
 - Dropped categories with fewer than 150 samples
 - Filtered out rows with very short questions (< 5 words) or answers (< 10 words)
+
+---
+
+## Web Interface
+
+A single-page interface (`frontend/index.html`) that talks to the API directly — no build step, no framework, no dependencies.
+
+**What it does:**
+- Sends questions to `POST /ask` and renders answers as chat bubbles
+- Generates a `session_id` on page load so the server can track conversation history
+- Detects whether each message is Arabic or English and sets its direction accordingly — the model replies in the language of the question, so an English answer inside an RTL page needs its own direction
+- Shows a typing indicator and disables the send button while a request is in flight, preventing duplicate submissions
+- Distinguishes network failures (`catch`) from server-side error responses (`!response.ok`) and surfaces each with an appropriate message
+- Clears both the visible chat and the server-side session via `POST /clear`
+
+**Running it:**
+
+```bash
+# 1. Start the API
+python app.py
+
+# 2. Open the interface
+frontend/index.html
+```
+
+Open the file directly in a browser. The API must be running on `http://localhost:5000` — CORS is enabled server-side to allow the request.
 
 ---
 
@@ -182,6 +215,8 @@ iCure/
 ├── Dockerfile              # Container build instructions
 ├── .dockerignore           # Excludes large files from Docker image
 ├── .gitignore              # Excludes data files and secrets from Git
+├── frontend/
+│   └── index.html          # Bilingual web interface (HTML + CSS + JS)
 └── .github/
     └── workflows/
         └── docker-build.yml  # CI/CD pipeline
@@ -252,6 +287,12 @@ Follow-up questions like "How do I treat it?" contain no medical content for FAI
 **Why session memory is server-side?**
 Putting history management on the server keeps the client API simple — users only send their current question and a session ID.
 
+**Why vanilla JavaScript for the frontend?**
+The interface is a single page with minimal state. React would have added a build step and a dependency tree without solving a problem the project actually has.
+
+**Why per-message direction detection?**
+The page is RTL, but the model answers in the language of the question. An English answer rendered inside an RTL container places its punctuation incorrectly, so each message is checked for Arabic characters and given its own direction.
+
 ---
 
 ## Sample Interactions
@@ -282,6 +323,17 @@ Q: What is the best restaurant in Amman?
 A: I don't have enough information about this topic.
    Always consult a doctor for medical decisions.
 ```
+
+---
+
+## Known Limitations & Roadmap
+
+Current constraints, and what's planned next:
+
+- **Session storage is in-process** — conversation history lives in a Python dictionary, so it is lost on restart and will not work across multiple instances. Redis is the planned replacement.
+- **CORS is open to all origins** — appropriate for local development, but should be restricted to a specific domain before any public deployment.
+- **No automated tests yet** — the CI pipeline builds the image but does not verify behaviour. Adding pytest coverage to the workflow is the next step.
+- **Not yet deployed** — the application runs locally and in Docker. Deployment to AWS EC2, with data artifacts served from S3, is planned.
 
 ---
 
