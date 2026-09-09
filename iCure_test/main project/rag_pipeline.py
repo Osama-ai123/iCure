@@ -84,6 +84,8 @@ If the answer is not in the provided context, say "I don't have enough informati
 Always recommend consulting a doctor for medical decisions.
 Provide a detailed, comprehensive answer based on the context. Do not give short or vague answers.
 Answer in the same language as the question.
+Write in plain text only. Do not use Markdown formatting, asterisks, hashes, or any special symbols.
+When listing multiple items, write each item on its own line, numbered as "1." "2." "3." and so on. Keep each item concise and do not repeat information.
 
 Medical Context:
 {context}
