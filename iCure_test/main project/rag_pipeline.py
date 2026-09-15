@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 import os
 import time
 import warnings
+import boto3
 warnings.filterwarnings('ignore')
 os.environ['HF_HUB_DISABLE_IMPLICIT_TOKEN'] = '1'
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -15,7 +16,34 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv()
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
+# أسماء الملفات المطلوبة والـ bucket اللي فيه نسخة منها
+S3_BUCKET = os.getenv("S3_BUCKET", "icure-artifacts-osama")
+DATA_FILES = ['faiss_index.bin', 'ample_data_250K.csv']
+
+
+def ensure_data_files():
+    """ينزّل ملفات البيانات من S3 إذا مش موجودة محلياً."""
+    missing = [
+        f for f in DATA_FILES
+        if not os.path.exists(os.path.join(BASE_DIR, f))
+    ]
+
+    if not missing:
+        return
+
+    print(f"Missing locally: {missing} — downloading from s3://{S3_BUCKET}")
+    s3 = boto3.client('s3')
+
+    for filename in missing:
+        destination = os.path.join(BASE_DIR, filename)
+        print(f"Downloading {filename}...")
+        s3.download_file(S3_BUCKET, filename, destination)
+        print(f"Downloaded {filename}")
+
+
 # حمّل كل شي مرة وحدة
+ensure_data_files()
+
 print("Loading model and index...")
 embedding_model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 index = faiss.read_index(os.path.join(BASE_DIR, 'faiss_index.bin'))
