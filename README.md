@@ -1,6 +1,6 @@
 # iCure — AI-Powered Medical Chatbot
 
-> A full-stack RAG-based medical chatbot built end-to-end with Python, Flask, FAISS, and Gemini AI — with a lightweight bilingual web interface.
+> A full-stack RAG-based medical chatbot built end-to-end with Python, Flask, FAISS, and Gemini AI — containerized with Docker, automated through GitHub Actions, and deployed on AWS EC2.
 
 ---
 
@@ -8,7 +8,7 @@
 
 iCure answers medical questions in Arabic and English using **Retrieval-Augmented Generation (RAG)**. Instead of relying solely on a language model's general knowledge, iCure retrieves relevant medical information from a curated dataset before generating an answer — making responses more accurate and grounded in real medical data.
 
-The system supports multi-turn conversations through session-based memory, handles informal Arabic medical terminology, ships with a bilingual web interface, and is fully containerized with Docker and automated through CI/CD.
+The system supports multi-turn conversations through session-based memory, handles informal Arabic medical terminology, and ships with a bilingual web interface. It is fully containerized with Docker, automated through CI/CD, and has been deployed and verified on AWS EC2 with its data artifacts served from S3.
 
 ---
 
@@ -63,6 +63,7 @@ Web Interface (HTML / CSS / JavaScript)
 - **Fault Tolerance** — automatic retry logic for API failures, with graceful error states surfaced in the UI
 - **Containerized** — fully Dockerized for consistent deployment anywhere
 - **CI/CD** — automated Docker image build and push via GitHub Actions
+- **Cloud Deployment** — runs on AWS EC2, with the FAISS index and dataset fetched from S3 at startup rather than baked into the image or committed to Git
 
 ---
 
@@ -77,7 +78,8 @@ Web Interface (HTML / CSS / JavaScript)
 | Language Model | Gemini 2.5 Flash (via `google-genai`) |
 | Data Processing | Pandas, NumPy |
 | Containerization | Docker |
-| CI/CD | GitHub Actions |
+| CI/CD | GitHub Actions, Docker Hub |
+| Cloud | AWS EC2 (Ubuntu), AWS S3, IAM |
 | Version Control | Git / GitHub |
 
 ---
@@ -248,6 +250,61 @@ curl -X POST http://localhost:5000/ask \
 
 ---
 
+## Deployment on AWS
+
+The application has been deployed and verified on an AWS EC2 instance. The setup below is what actually runs it.
+
+### Data artifacts on S3
+
+Two files are too large for Git: the FAISS index (384 MB) and the sampled dataset (113 MB). Rather than baking them into the Docker image or committing them, they live in a private S3 bucket and are fetched at startup only when missing locally:
+
+```python
+def ensure_data_files():
+    missing = [f for f in DATA_FILES
+               if not os.path.exists(os.path.join(BASE_DIR, f))]
+    if not missing:
+        return
+    s3 = boto3.client('s3')
+    for filename in missing:
+        s3.download_file(S3_BUCKET, filename, os.path.join(BASE_DIR, filename))
+```
+
+The same code runs unchanged in both environments: locally the files are already present so the download is skipped entirely; on a fresh server they are pulled once. `boto3` resolves credentials from the environment, so no keys appear anywhere in source.
+
+### Server
+
+| | |
+|---|---|
+| Instance | t3.small (2 GB RAM), Ubuntu, 30 GB gp3 |
+| Region | eu-central-1 |
+| Firewall | Security Group restricting ports 22 and 5000 to a single source IP |
+| Runtime | Docker, image pulled from Docker Hub (published by the CI pipeline) |
+
+```bash
+docker run -d \
+  --name icure \
+  -p 5000:5000 \
+  --env-file ~/icure.env \
+  --restart unless-stopped \
+  <username>/icure:latest
+```
+
+### Memory constraint
+
+Loading the sentence-transformer model alongside the FAISS index exceeds 2 GB, and the container was killed on startup with exit code 137 — SIGKILL from the OOM killer, with no exception or traceback, just silence in the logs. A 4 GB swap file resolved it without upgrading the instance:
+
+```bash
+sudo fallocate -l 4G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
+
+Swap sits on disk and is considerably slower than RAM, so this is a pragmatic fix for a demonstration deployment rather than a production answer — a larger instance is the correct solution under real load.
+
+---
+
 ## Environment Variables
 
 Create a `.env` file with the following:
@@ -333,7 +390,8 @@ Current constraints, and what's planned next:
 - **Session storage is in-process** — conversation history lives in a Python dictionary, so it is lost on restart and will not work across multiple instances. Redis is the planned replacement.
 - **CORS is open to all origins** — appropriate for local development, but should be restricted to a specific domain before any public deployment.
 - **No automated tests yet** — the CI pipeline builds the image but does not verify behaviour. Adding pytest coverage to the workflow is the next step.
-- **Not yet deployed** — the application runs locally and in Docker. Deployment to AWS EC2, with data artifacts served from S3, is planned.
+- **Running on swap** — the deployed instance relies on a swap file to fit the model and index in memory. It works, but response times suffer; a larger instance is the correct fix.
+- **Single instance, no load balancing** — the deployment is a single EC2 instance with no redundancy or autoscaling.
 
 ---
 
