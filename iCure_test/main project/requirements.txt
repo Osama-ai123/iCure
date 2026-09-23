@@ -9,3 +9,4 @@ flask-cors
 boto3
 sqlalchemy
 psycopg2-binary
+alembic
