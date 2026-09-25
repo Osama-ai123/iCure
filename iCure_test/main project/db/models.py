@@ -1,7 +1,7 @@
 from sqlalchemy import (
-    Column, Integer, String, Text, DateTime, ForeignKey, func, create_engine,Enum
+    Column, Integer, String, Text, DateTime, ForeignKey, func, Enum
 )
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.orm import relationship
 from db.database import Base
 
 
@@ -13,11 +13,12 @@ class User(Base):
     pass_hash=Column(String(255),nullable=False)
     created_at=Column(DateTime,server_default=func.now())
     conversations=relationship('Conversation',back_populates='user',cascade='all,delete-orphan')
+    refresh_tokens=relationship('RefreshToken',back_populates='user',cascade='all,delete-orphan')
 
 
 class Conversation(Base):
     __tablename__="conversations"
-    id=Column(Integer,primary_key=True,)
+    id=Column(Integer,primary_key=True)
     user_id=Column(Integer,ForeignKey(User.id,ondelete='CASCADE'),nullable=False,index=True)
     created_at=Column(DateTime,server_default=func.now())
     title=Column(String(255),nullable=True)
@@ -32,3 +33,13 @@ class Message(Base):
     sent_time=Column(DateTime,server_default=func.now())
     role=Column(Enum("question","response",name="message_type"),nullable=False)
     conversation=relationship('Conversation',back_populates='messages')
+
+class RefreshToken(Base):
+    __tablename__="refresh_tokens"
+    id=Column(Integer,primary_key=True)
+    user_id=Column(Integer,ForeignKey(User.id,ondelete='CASCADE'),nullable=False,index=True)
+    token_hash=Column(String(64),nullable=False,unique=True)
+    expires_at=Column(DateTime(timezone=True),nullable=False)
+    created_at=Column(DateTime,server_default=func.now())
+    user=relationship('User',back_populates='refresh_tokens')
+
