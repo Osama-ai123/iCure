@@ -3,10 +3,13 @@ from rag_pipeline import ask
 from flask_cors import CORS
 from db.database import SessionLocal
 from db.models import User, Conversation, Message
+from sqlalchemy.exc import IntegrityError
+from auth import hash_password, MAX_PASSWORD_BYTES
+
+MIN_PASSWORD_LENGTH = 8
 
 ##1
 GUEST_EMAIL = "guest@icure.local"
-
 
 def get_guest_user_id(db):
     """مؤقت حتى تصل المصادقة — يُستبدل بـ g.current_user_id"""
@@ -55,6 +58,36 @@ def health_check():
         'status': 'iCure API is running',
         'version': '1.0'
     })
+
+@app.route('/register', methods=['POST'])
+def register():
+    data = request.get_json(silent=True) or {}
+    email = (data.get('email') or '').strip().lower()
+    password = data.get('password') or ''
+
+    if not email or '@' not in email:
+        return jsonify({'error': 'A valid email is required'}), 400
+    if len(password) < MIN_PASSWORD_LENGTH:
+        return jsonify({'error': f'Password must be at least {MIN_PASSWORD_LENGTH} characters'}), 400
+    if len(password.encode('utf-8')) > MAX_PASSWORD_BYTES:
+        return jsonify({'error': 'Password is too long'}), 400
+
+    db = SessionLocal()
+    try:
+        if db.query(User).filter_by(email=email).first():
+            return jsonify({'error': 'Email is already registered'}), 409
+
+        user = User(email=email, pass_hash=hash_password(password))
+        db.add(user)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            return jsonify({'error': 'Email is already registered'}), 409
+
+        return jsonify({'id': user.id, 'email': user.email}), 201
+    finally:
+        db.close()
 
 @app.route('/ask', methods=['POST'])
 def ask_question():
