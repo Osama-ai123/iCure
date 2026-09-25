@@ -217,7 +217,7 @@
     <div class="input-row">
       <input type="text" id="questionInput" placeholder="اكتب سؤالك هنا... / Type your question here...">
       <button id="sendBtn">إرسال</button>
-      <button id="clearBtn">مسح</button>
+      <button id="clearBtn">محادثة جديدة</button>
     </div>
 
     <footer>
@@ -228,7 +228,7 @@
 
   <script>
     const API_URL = "http://localhost:5000";
-    const SESSION_ID = "web-" + Date.now();
+    let conversationId = null;
 
     const chatBox = document.getElementById("chat");
     const inputField = document.getElementById("questionInput");
@@ -274,19 +274,21 @@
     }
 
     async function sendQuestion() {
+      if (sendBtn.disabled) return;
       const question = inputField.value.trim();
       if (!question) return;
 
       addMessage(question, "user");
       inputField.value = "";
       sendBtn.disabled = true;
+      clearBtn.disabled = true;
       showTyping();
 
       try {
         const response = await fetch(API_URL + "/ask", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ question, session_id: SESSION_ID })
+          body: JSON.stringify({ question, conversation_id: conversationId })
         });
 
         const data = await response.json();
@@ -298,6 +300,7 @@
         }
 
         addMessage(data.answer, "bot");
+        conversationId = data.conversation_id;
 
       } catch (err) {
         hideTyping();
@@ -305,26 +308,24 @@
         console.error(err);
       } finally {
         sendBtn.disabled = false;
+        clearBtn.disabled = false;
         inputField.focus();
       }
     }
 
-    async function clearSession() {
-      try {
-        await fetch(API_URL + "/clear", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ session_id: SESSION_ID })
-        });
-      } catch (err) {
-        console.error(err);
-      }
-      chatBox.innerHTML = "";
+    function newConversation() {
+      conversationId = null;
+
+      chatBox.querySelectorAll(".msg, .typing").forEach(el => el.remove());
+
+      const empty = document.getElementById("emptyState");
+      if (empty) empty.style.display = "";
+
       inputField.focus();
     }
 
     sendBtn.addEventListener("click", sendQuestion);
-    clearBtn.addEventListener("click", clearSession);
+    clearBtn.addEventListener("click", newConversation);
 
     inputField.addEventListener("keydown", function (event) {
       if (event.key === "Enter") {
