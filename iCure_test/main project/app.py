@@ -1,21 +1,19 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, g
 from rag_pipeline import ask
 from flask_cors import CORS
 from db.database import SessionLocal
-from db.models import User, Conversation, Message
+from auth import (
+    hash_password, check_password, create_access_token,
+    generate_refresh_token, refresh_token_expiry, require_auth,
+    MAX_PASSWORD_BYTES, ACCESS_TOKEN_MINUTES,
+)
+from db.models import User, Conversation, Message, RefreshToken
 from sqlalchemy.exc import IntegrityError
 from auth import hash_password, MAX_PASSWORD_BYTES
 
 MIN_PASSWORD_LENGTH = 8
 
-##1
-GUEST_EMAIL = "guest@icure.local"
 
-def get_guest_user_id(db):
-    """مؤقت حتى تصل المصادقة — يُستبدل بـ g.current_user_id"""
-    return db.query(User).filter_by(email=GUEST_EMAIL).first().id
-
-##2
 def get_or_create_conversation(db, user_id, conversation_id):
     if conversation_id is None:
         conv = Conversation(user_id=user_id)
@@ -28,7 +26,7 @@ def get_or_create_conversation(db, user_id, conversation_id):
         user_id=user_id
     ).first()
 
-##3
+
 def build_history(db, conversation_id, limit=6):
     messages = (
         db.query(Message)
@@ -46,7 +44,7 @@ def build_history(db, conversation_id, limit=6):
         for m in messages
     ]
 
-##
+
 
 app = Flask(__name__)
 CORS(app)
@@ -89,7 +87,42 @@ def register():
     finally:
         db.close()
 
+
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.get_json(silent=True) or {}
+    email = (data.get('email') or '').strip().lower()
+    password = data.get('password') or ''
+
+    if not email or not password:
+        return jsonify({'error': 'Email and password are required'}), 400
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter_by(email=email).first()
+        if user is None or not check_password(password, user.pass_hash):
+            return jsonify({'error': 'Invalid email or password'}), 401
+
+        refresh_token, token_hash = generate_refresh_token()
+        db.add(RefreshToken(
+            user_id=user.id,
+            token_hash=token_hash,
+            expires_at=refresh_token_expiry(),
+        ))
+        db.commit()
+
+        return jsonify({
+            'access_token': create_access_token(user.id),
+            'refresh_token': refresh_token,
+            'token_type': 'Bearer',
+            'expires_in': ACCESS_TOKEN_MINUTES * 60,
+        }), 200
+    finally:
+        db.close()
+
+
 @app.route('/ask', methods=['POST'])
+@require_auth
 def ask_question():
     data = request.get_json()
 
@@ -110,7 +143,7 @@ def ask_question():
     
     db = SessionLocal()
     try:
-        usr_id=get_guest_user_id(db)
+        usr_id = g.current_user_id
         chat=get_or_create_conversation(db,usr_id,conversation_id)
         if chat is None:
             return jsonify({

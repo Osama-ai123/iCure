@@ -6,6 +6,8 @@ from datetime import datetime, timedelta, timezone
 import bcrypt
 import jwt
 from dotenv import load_dotenv
+from functools import wraps
+from flask import request, jsonify, g
 
 load_dotenv()
 
@@ -30,7 +32,9 @@ def check_password(password, pass_hash):
     password_bytes = password.encode("utf-8")
     if len(password_bytes) > MAX_PASSWORD_BYTES:
         return False
-    return bcrypt.checkpw(password_bytes, pass_hash.encode("utf-8"))
+    try:
+        return bcrypt.checkpw(password_bytes, pass_hash.encode("utf-8"))
+    except ValueError: return False
 
 
 # ---------- Access token (JWT) ----------
@@ -61,3 +65,24 @@ def generate_refresh_token():
 
 def refresh_token_expiry():
     return datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_DAYS)
+
+# ---------- Decorator ----------
+
+def require_auth(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        auth_header = request.headers.get("Authorization", "")
+        scheme, _, token = auth_header.partition(" ")
+
+        if scheme.lower() != "bearer" or not token:
+            return jsonify({"error": "Missing or invalid Authorization header"}), 401
+
+        try:
+            g.current_user_id = decode_access_token(token)
+        except jwt.ExpiredSignatureError:
+            return jsonify({"error": "Token expired"}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({"error": "Invalid token"}), 401
+
+        return f(*args, **kwargs)
+    return wrapper
