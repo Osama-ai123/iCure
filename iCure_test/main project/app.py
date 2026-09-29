@@ -2,10 +2,11 @@ from flask import Flask, request, jsonify, g
 from rag_pipeline import ask
 from flask_cors import CORS
 from db.database import SessionLocal
+from datetime import datetime, timezone
 from auth import (
     hash_password, check_password, create_access_token,
-    generate_refresh_token, refresh_token_expiry, require_auth,
-    MAX_PASSWORD_BYTES, ACCESS_TOKEN_MINUTES,
+    generate_refresh_token, refresh_token_expiry, hash_refresh_token,
+    require_auth, MAX_PASSWORD_BYTES, ACCESS_TOKEN_MINUTES,
 )
 from db.models import User, Conversation, Message, RefreshToken
 from sqlalchemy.exc import IntegrityError
@@ -117,6 +118,47 @@ def login():
             'token_type': 'Bearer',
             'expires_in': ACCESS_TOKEN_MINUTES * 60,
         }), 200
+    finally:
+        db.close()
+
+@app.route('/refresh', methods=['POST'])
+def refresh():
+    data = request.get_json(silent=True) or {}
+    token = data.get('refresh_token') or ''
+    if not token:
+        return jsonify({'error': 'refresh_token is required'}), 400
+
+    db = SessionLocal()
+    try:
+        row = db.query(RefreshToken).filter_by(token_hash=hash_refresh_token(token)).first()
+        if row is None:
+            return jsonify({'error': 'Invalid refresh token'}), 401
+        if row.expires_at < datetime.now(timezone.utc):
+            db.delete(row)
+            db.commit()
+            return jsonify({'error': 'Refresh token expired'}), 401
+
+        return jsonify({
+            'access_token': create_access_token(row.user_id),
+            'token_type': 'Bearer',
+            'expires_in': ACCESS_TOKEN_MINUTES * 60,
+        }), 200
+    finally:
+        db.close()
+
+
+@app.route('/logout', methods=['POST'])
+def logout():
+    data = request.get_json(silent=True) or {}
+    token = data.get('refresh_token') or ''
+    if not token:
+        return jsonify({'error': 'refresh_token is required'}), 400
+
+    db = SessionLocal()
+    try:
+        db.query(RefreshToken).filter_by(token_hash=hash_refresh_token(token)).delete()
+        db.commit()
+        return '', 204
     finally:
         db.close()
 
