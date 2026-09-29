@@ -11,6 +11,8 @@ from auth import (
 from db.models import User, Conversation, Message, RefreshToken
 from sqlalchemy.exc import IntegrityError
 from auth import hash_password, MAX_PASSWORD_BYTES
+import logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 MIN_PASSWORD_LENGTH = 8
 
@@ -186,6 +188,7 @@ def ask_question():
     db = SessionLocal()
     try:
         usr_id = g.current_user_id
+        is_new = conversation_id is None
         chat=get_or_create_conversation(db,usr_id,conversation_id)
         if chat is None:
             return jsonify({
@@ -196,7 +199,15 @@ def ask_question():
 
         history=build_history(db,chat.id)
 
-        answer=ask(question,history)
+        try:
+            answer = ask(question, history)
+        except Exception:
+            logging.exception("RAG/LLM call failed")
+            db.rollback()
+            if is_new:
+                db.delete(chat)
+                db.commit()
+            return jsonify({'error': 'The AI service is temporarily unavailable. Please try again later.'}), 503
 
         last_question=Message(conversation_id=chat.id,content=question,role="question")
         db.add(last_question)
