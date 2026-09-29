@@ -191,7 +191,8 @@ def ask_question():
             return jsonify({
                 'error':'there is no chat or conversation'
             }),404
-            
+        if chat.title is None:
+            chat.title = question[:60]
 
         history=build_history(db,chat.id)
 
@@ -213,6 +214,58 @@ def ask_question():
     finally:
          db.close()
 
+@app.route('/conversations', methods=['GET'])
+@require_auth
+def list_conversations():
+    db = SessionLocal()
+    try:
+        convs = (db.query(Conversation)
+                 .filter_by(user_id=g.current_user_id)
+                 .order_by(Conversation.created_at.desc())
+                 .all())
+        return jsonify([
+            {
+                'id': c.id,
+                'title': c.title or 'New conversation',
+                'created_at': c.created_at.isoformat() if c.created_at else None,
+            }
+            for c in convs
+        ]), 200
+    finally:
+        db.close()
+
+
+@app.route('/conversations/<int:conversation_id>/messages', methods=['GET'])
+@require_auth
+def get_conversation_messages(conversation_id):
+    db = SessionLocal()
+    try:
+        conv = db.query(Conversation).filter_by(
+            id=conversation_id, user_id=g.current_user_id).first()
+        if conv is None:
+            return jsonify({'error': 'Conversation not found'}), 404
+        return jsonify([
+            {'role': m.role, 'content': m.content}
+            for m in conv.messages
+        ]), 200
+    finally:
+        db.close()
+
+
+@app.route('/conversations/<int:conversation_id>', methods=['DELETE'])
+@require_auth
+def delete_conversation(conversation_id):
+    db = SessionLocal()
+    try:
+        conv = db.query(Conversation).filter_by(
+            id=conversation_id, user_id=g.current_user_id).first()
+        if conv is None:
+            return jsonify({'error': 'Conversation not found'}), 404
+        db.delete(conv)
+        db.commit()
+        return '', 204
+    finally:
+        db.close()
  
 
 if __name__ == '__main__':
