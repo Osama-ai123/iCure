@@ -1,53 +1,49 @@
 # iCure — AI-Powered Medical Chatbot
 
-> A full-stack RAG-based medical chatbot built end-to-end with Python, Flask, FAISS, and Gemini AI — containerized with Docker, automated through GitHub Actions, and deployed on AWS EC2.
+> A full-stack RAG-based medical chatbot built end-to-end with Python, Flask, FAISS, PostgreSQL, and Gemini AI — with JWT authentication, persistent conversations, a Docker Compose stack (Nginx, Gunicorn, PostgreSQL), and a CI pipeline on GitHub Actions.
 
 ---
 
 ## Overview
 
-iCure answers medical questions in Arabic and English using **Retrieval-Augmented Generation (RAG)**. Instead of relying solely on a language model's general knowledge, iCure retrieves relevant medical information from a curated dataset before generating an answer — making responses more accurate and grounded in real medical data.
+iCure answers medical questions in Arabic and English using **Retrieval-Augmented Generation (RAG)**. Instead of relying solely on a language model's general knowledge, iCure retrieves relevant medical information from a curated dataset before generating an answer — making responses grounded in real medical data.
 
-The system supports multi-turn conversations through session-based memory, handles informal Arabic medical terminology, and ships with a bilingual web interface. It is fully containerized with Docker, automated through CI/CD, and has been deployed and verified on AWS EC2 with its data artifacts served from S3.
+Users create an account, sign in, and chat. Every conversation is stored in PostgreSQL, survives server restarts, and appears in a sidebar where it can be reopened or deleted. Each user can only ever see their own conversations.
+
+The whole system — web interface, API, and database — starts with a single `docker compose up`, and database migrations run automatically on startup.
 
 ---
 
 ## Architecture
 
 ```
-Web Interface (HTML / CSS / JavaScript)
-        │  fetch → JSON
-        ▼
-┌─────────────────────────┐
-│   Flask REST API        │  ← session management, request validation
-└─────────────────────────┘
-        │
-        ▼
-┌─────────────────────────┐
-│   Query Normalization   │  ← Gemini resolves ambiguous follow-ups
-│   (Gemini API)          │    and transliterates informal terms
-└─────────────────────────┘
-        │
-        ▼
-┌─────────────────────────┐
-│   Sentence Embedding    │  ← paraphrase-multilingual-MiniLM-L12-v2
-│   (sentence-transformers)│   converts question to a 384-dim vector
-└─────────────────────────┘
-        │
-        ▼
-┌─────────────────────────┐
-│   Semantic Search       │  ← FAISS IndexFlatL2 searches 250K vectors
-│   (FAISS)               │   returns top-5 most relevant Q&A pairs
-└─────────────────────────┘
-        │
-        ▼
-┌─────────────────────────┐
-│   Answer Generation     │  ← Gemini 2.5 Flash generates a response
-│   (Gemini API)          │   grounded strictly in retrieved context
-└─────────────────────────┘
-        │
-        ▼
-     JSON Response → rendered in the browser
+                Browser (HTML / CSS / vanilla JS)
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────┐
+│  Nginx  (web)                                            │
+│  • serves the static frontend                            │
+│  • proxies /api/*  →  app:5000                           │
+└──────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────┐
+│  Flask API on Gunicorn  (app)                            │
+│  • JWT auth: register / login / refresh / logout         │
+│  • conversations & messages (SQLAlchemy ORM)             │
+│  • RAG pipeline:                                         │
+│      Gemini rewrites the question (follow-ups, terms)    │
+│        → multilingual embedding (384-dim)                │
+│        → FAISS search over 250K vectors (top-5)          │
+│        → Gemini answers from the retrieved context only  │
+└──────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────┐
+│  PostgreSQL 16  (db)                                     │
+│  users · conversations · messages · refresh_tokens       │
+│  schema managed by Alembic migrations                    │
+└──────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -55,15 +51,16 @@ Web Interface (HTML / CSS / JavaScript)
 ## Key Features
 
 - **Semantic Search** — finds relevant medical information by meaning, not keyword matching
-- **Multilingual Support** — handles Arabic and English questions in the same system
-- **Bilingual Web Interface** — RTL-first UI that detects the language of each message and sets its text direction automatically
-- **Query Normalization** — resolves follow-up questions ("How do I treat it?") and transliterates informal Arabic medical terms (e.g. "انيميا" → anemia)
-- **Session Memory** — maintains conversation context across multiple exchanges per session
-- **Out-of-scope Detection** — declines non-medical questions gracefully
-- **Fault Tolerance** — automatic retry logic for API failures, with graceful error states surfaced in the UI
-- **Containerized** — fully Dockerized for consistent deployment anywhere
-- **CI/CD** — automated Docker image build and push via GitHub Actions
-- **Cloud Deployment** — runs on AWS EC2, with the FAISS index and dataset fetched from S3 at startup rather than baked into the image or committed to Git
+- **Multilingual** — Arabic and English questions in the same system, answered in the language asked
+- **Query Normalization** — resolves follow-ups ("How do I treat it?") and transliterated Arabic medical terms (e.g. "انيميا" → anemia) before retrieval
+- **User Accounts** — registration and login with bcrypt-hashed passwords
+- **JWT Authentication** — short-lived access tokens with refresh tokens, refreshed automatically by the frontend
+- **Persistent Conversations** — history stored in PostgreSQL; context survives restarts and works across server instances
+- **Per-user Isolation** — every query is scoped to the authenticated user (IDOR-tested)
+- **Conversation Sidebar** — list, reopen, and delete past conversations
+- **Database Migrations** — schema versioned with Alembic and applied automatically on container start
+- **One-command Stack** — Docker Compose runs Nginx, the API on Gunicorn, and PostgreSQL together
+- **CI** — every push to `main` builds the Docker image and pushes it to Docker Hub
 
 ---
 
@@ -72,15 +69,209 @@ Web Interface (HTML / CSS / JavaScript)
 | Layer | Technology |
 |---|---|
 | Frontend | HTML, CSS, vanilla JavaScript (Fetch API) |
-| Backend Framework | Python + Flask, Flask-CORS |
-| Embedding Model | `paraphrase-multilingual-MiniLM-L12-v2` |
-| Vector Database | FAISS (IndexFlatL2, 250K vectors, 384 dimensions) |
-| Language Model | Gemini 2.5 Flash (via `google-genai`) |
-| Data Processing | Pandas, NumPy |
-| Containerization | Docker |
-| CI/CD | GitHub Actions, Docker Hub |
-| Cloud | AWS EC2 (Ubuntu), AWS S3, IAM |
-| Version Control | Git / GitHub |
+| Web server / reverse proxy | Nginx |
+| Backend | Python 3.12, Flask, Gunicorn |
+| Authentication | bcrypt, PyJWT (HS256) |
+| Database | PostgreSQL 16, SQLAlchemy 2.0 (ORM), Alembic |
+| Embedding model | `paraphrase-multilingual-MiniLM-L12-v2` (CPU) |
+| Vector search | FAISS (IndexFlatL2, 250K vectors, 384 dimensions) |
+| Language model | Gemini 2.5 Flash (`google-genai`) |
+| Data processing | Pandas, NumPy |
+| Containers | Docker, Docker Compose |
+| CI | GitHub Actions → Docker Hub |
+| Cloud | AWS EC2 (Ubuntu), S3, IAM |
+
+---
+
+## Quick Start (Docker Compose)
+
+**Prerequisites:** Docker Desktop, a Gemini API key, and the two data files (`faiss_index.bin`, `ample_data_250K.csv`).
+
+**1. Configure the environment**
+
+```bash
+cp .env.example .env
+# then fill in GEMINI_API_KEY, JWT_SECRET and POSTGRES_PASSWORD
+```
+
+Generate a strong `JWT_SECRET` with:
+
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+**2. Provide the data files**
+
+Place them in `data/` — or leave the folder empty and provide AWS credentials, and the app will download them from S3 on first start.
+
+```
+data/
+├── faiss_index.bin
+└── ample_data_250K.csv
+```
+
+**3. Start the stack**
+
+```bash
+docker compose up --build -d
+```
+
+On first start the embedding model is downloaded into a cached volume; later starts are fast. Open **http://localhost**, create an account, and start asking.
+
+**Useful commands**
+
+```bash
+docker compose ps                # service status
+docker compose logs -f app       # API logs
+docker compose down              # stop (data is kept)
+docker compose down -v           # stop AND delete the database volume
+```
+
+### Local development without Compose
+
+For fast iteration, run only PostgreSQL in Docker and the API directly:
+
+```bash
+docker run -d --name icure-db -e POSTGRES_PASSWORD=devpassword -e POSTGRES_DB=icure -p 5432:5432 postgres:16
+alembic upgrade head
+python app.py
+```
+
+Then open `frontend/index.html` directly in the browser. The page detects that it was opened from disk and calls `http://localhost:5000`; when served by Nginx it calls `/api` instead.
+
+---
+
+## Authentication Design
+
+| | Access token | Refresh token |
+|---|---|---|
+| Format | JWT (HS256) | Random 256-bit string (`secrets.token_urlsafe`) |
+| Lifetime | 15 minutes | 7 days |
+| Stored server-side | No — verified by signature alone | Yes — only its SHA-256 hash |
+| Sent with | Every protected request (`Authorization: Bearer …`) | Only `/refresh` and `/logout` |
+| Revocable | No (expires quickly instead) | Yes — deleted on logout |
+
+**Why two tokens?** A long-lived token is convenient but dangerous if stolen; a short-lived one is safe but forces frequent logins. The access token is sent constantly but dies in 15 minutes; the refresh token is sent rarely and can be revoked. When a request returns `401 Token expired`, the frontend calls `/refresh` and retries the original request transparently.
+
+**Why bcrypt for passwords but SHA-256 for refresh tokens?** Passwords are chosen by humans and are guessable, so they need a deliberately slow, salted hash. Refresh tokens are 256 bits of randomness that cannot be guessed, so a fast hash is enough — and it allows a direct indexed lookup.
+
+**Other decisions**
+
+- Login returns the same `401 Invalid email or password` whether the email or the password is wrong, so it does not reveal which accounts exist.
+- Emails are normalized (`strip().lower()`) on both register and login.
+- Password length is checked in **bytes** (bcrypt's 72-byte limit), since an Arabic character takes two bytes in UTF-8.
+- Duplicate registrations are caught twice: a lookup for the common case, and the database `UNIQUE` constraint (`IntegrityError` → `409`) for the race where two requests arrive at the same moment.
+- `JWT_SECRET` and `DATABASE_URL` are read from the environment, and the app refuses to start if they are missing (fail fast).
+
+---
+
+## Data Model
+
+```
+users                       conversations                  messages
+─────                       ─────────────                  ────────
+id (PK)              ┌───<  id (PK)                ┌───<   id (PK)
+email (UNIQUE)       │      user_id (FK, indexed) ─┘       conversation_id (FK, indexed)
+pass_hash            │      title                          content (TEXT)
+created_at           │      created_at                     role  ENUM(question, response)
+                     │                                     sent_time
+                     │      refresh_tokens
+                     │      ──────────────
+                     └───<  user_id (FK, indexed)
+                            token_hash (UNIQUE)
+                            expires_at (timestamptz)
+                            created_at
+```
+
+All foreign keys use `ON DELETE CASCADE`: deleting a user removes their conversations, messages, and tokens. The conversation title is taken from the first question.
+
+---
+
+## API Endpoints
+
+All protected endpoints require `Authorization: Bearer <access_token>`.
+
+### Auth
+
+| Method | Path | Body | Success | Errors |
+|---|---|---|---|---|
+| `POST` | `/register` | `{email, password}` | `201 {id, email}` | `400` invalid input · `409` email exists |
+| `POST` | `/login` | `{email, password}` | `200 {access_token, refresh_token, token_type, expires_in}` | `400` missing fields · `401` invalid credentials |
+| `POST` | `/refresh` | `{refresh_token}` | `200 {access_token, token_type, expires_in}` | `401` invalid or expired |
+| `POST` | `/logout` | `{refresh_token}` | `204` | `400` missing token |
+
+### Chat (protected)
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/ask` | Ask a question. Omit `conversation_id` to start a new conversation. |
+| `GET` | `/conversations` | The current user's conversations, newest first. |
+| `GET` | `/conversations/<id>/messages` | Messages of one conversation, in order. |
+| `DELETE` | `/conversations/<id>` | Delete a conversation and its messages (`204`). |
+
+Requesting or deleting another user's conversation returns `404`, the same as a conversation that does not exist.
+
+**`POST /ask` example**
+
+```json
+// request
+{ "question": "ما هي أعراض فقر الدم؟", "conversation_id": null }
+
+// response
+{
+  "question": "ما هي أعراض فقر الدم؟",
+  "answer": "تشمل أعراض فقر الدم: التعب والإرهاق، شحوب الوجه، الدوخة...",
+  "conversation_id": 12,
+  "status": "success"
+}
+```
+
+Send the returned `conversation_id` with the next question to continue the same conversation. The last 6 messages are used as context. If the language model is unavailable, the API returns `503`, and a conversation that was just created is removed so no empty conversations are left behind.
+
+### Health
+
+`GET /` — confirms the API is running.
+
+---
+
+## Project Structure
+
+```
+main project/
+├── app.py                 # Flask routes: auth, ask, conversations
+├── auth.py                # bcrypt, JWT, refresh tokens, @require_auth
+├── rag_pipeline.py        # normalization, embedding, FAISS search, generation
+├── db/
+│   ├── database.py        # engine, SessionLocal, Base (reads DATABASE_URL)
+│   └── models.py          # User, Conversation, Message, RefreshToken
+├── alembic/               # migrations (env.py + versions/)
+├── alembic.ini
+├── frontend/
+│   ├── index.html         # login/register, chat, sidebar
+│   ├── logo.jpg
+│   └── logo-wordmark.png
+├── data/                  # FAISS index + dataset (not in Git, not in the image)
+├── Dockerfile             # Python 3.12-slim, CPU-only PyTorch, Gunicorn
+├── docker-compose.yml     # db (Postgres) · app (API) · web (Nginx)
+├── nginx.conf             # static files + /api reverse proxy
+├── requirements.txt       # pinned dependencies
+├── .env.example           # required environment variables (no secrets)
+└── .dockerignore
+```
+
+---
+
+## Environment Variables
+
+| Variable | Purpose |
+|---|---|
+| `GEMINI_API_KEY` | Gemini API key |
+| `JWT_SECRET` | Secret used to sign access tokens |
+| `POSTGRES_PASSWORD` | Password for the Compose PostgreSQL service |
+| `DATABASE_URL` | Used when running without Compose, e.g. `postgresql+psycopg2://postgres:devpassword@localhost:5432/icure` (Compose sets it automatically) |
+| `S3_BUCKET` | Bucket holding the data files (optional if they are already in `data/`) |
+| `SQL_ECHO` | `1` to log every SQL statement (debugging) |
+| `WEB_PORT` | Host port for Nginx (default `80`) |
 
 ---
 
@@ -100,298 +291,75 @@ Web Interface (HTML / CSS / JavaScript)
 
 ---
 
-## Web Interface
+## Containers and Deployment
 
-A single-page interface (`frontend/index.html`) that talks to the API directly — no build step, no framework, no dependencies.
+**Image design**
 
-**What it does:**
-- Sends questions to `POST /ask` and renders answers as chat bubbles
-- Generates a `session_id` on page load so the server can track conversation history
-- Detects whether each message is Arabic or English and sets its direction accordingly — the model replies in the language of the question, so an English answer inside an RTL page needs its own direction
-- Shows a typing indicator and disables the send button while a request is in flight, preventing duplicate submissions
-- Distinguishes network failures (`catch`) from server-side error responses (`!response.ok`) and surfaces each with an appropriate message
-- Clears both the visible chat and the server-side session via `POST /clear`
+- `python:3.12-slim` base, matching the development environment.
+- PyTorch is installed from the **CPU-only** index before the other requirements. The default Linux wheel pulls several GB of CUDA libraries that are useless without a GPU — on the first attempt it exhausted the build disk and crashed Docker.
+- All dependencies are pinned. An unpinned SQLAlchemy resolved to a newer release inside the container whose default PostgreSQL driver differed from the one installed, so the same code worked locally and failed in the container.
+- Data files and secrets are excluded by `.dockerignore`; data is mounted from `./data` and the Hugging Face model cache lives in a named volume.
+- The container command runs `alembic upgrade head` before starting Gunicorn, so a fresh database gets its schema automatically.
 
-**Running it:**
+**AWS (previous single-container version)**
 
-```bash
-# 1. Start the API
-python app.py
-
-# 2. Open the interface
-frontend/index.html
-```
-
-Open the file directly in a browser. The API must be running on `http://localhost:5000` — CORS is enabled server-side to allow the request.
-
----
-
-## API Endpoints
-
-### `GET /`
-Health check — confirms the API is running.
-
-**Response:**
-```json
-{
-  "status": "iCure API is running",
-  "version": "1.0"
-}
-```
-
----
-
-### `POST /ask`
-Submit a medical question and receive an AI-generated answer.
-
-**Request Body:**
-```json
-{
-  "question": "ما هي أعراض فقر الدم؟",
-  "session_id": "user-123"
-}
-```
-
-**Response:**
-```json
-{
-  "question": "ما هي أعراض فقر الدم؟",
-  "answer": "تشمل أعراض فقر الدم: التعب والإرهاق، شحوب الوجه، الدوخة، ضيق التنفس...",
-  "session_id": "user-123",
-  "status": "success"
-}
-```
-
-**Notes:**
-- `session_id` is optional. If omitted, defaults to `"default"`
-- The API maintains the last 6 messages (3 exchanges) per session
-- Responds in the same language as the question
-
----
-
-### `POST /clear`
-Clear the conversation history for a session.
-
-**Request Body:**
-```json
-{
-  "session_id": "user-123"
-}
-```
-
-**Response:**
-```json
-{
-  "status": "session cleared",
-  "session_id": "user-123"
-}
-```
-
----
-
-## How Session Memory Works
-
-Each request includes a `session_id`. The server maintains a conversation history per session and automatically injects it into the prompt — the client only needs to send the current question.
-
-```
-Request 1:  {"question": "What are symptoms of diabetes?",  "session_id": "abc"}
-Response 1: "Symptoms include frequent urination, thirst..."
-
-Request 2:  {"question": "What is the treatment?",  "session_id": "abc"}
-            ↑ Server resolves "the treatment" → "treatment for diabetes"
-Response 2: "Treatment includes diet management, medication..."
-```
-
----
-
-## Project Structure
-
-```
-iCure/
-├── app.py                  # Flask API — endpoints and session management
-├── rag_pipeline.py         # Core RAG logic — search, normalize, generate
-├── Clean.py                # Data cleaning and preprocessing script
-├── faiss_builder.py        # FAISS index construction
-├── train.py                # Embedding generation (GPU)
-├── requirements.txt        # Python dependencies
-├── Dockerfile              # Container build instructions
-├── .dockerignore           # Excludes large files from Docker image
-├── .gitignore              # Excludes data files and secrets from Git
-├── frontend/
-│   └── index.html          # Bilingual web interface (HTML + CSS + JS)
-└── .github/
-    └── workflows/
-        └── docker-build.yml  # CI/CD pipeline
-```
-
----
-
-## Running with Docker
-
-**1. Build the image:**
-```bash
-docker build -t icure .
-```
-
-**2. Run the container with data volumes:**
-```bash
-docker run -p 5000:5000 \
-  --env-file .env \
-  -v "/path/to/data:/app" \
-  icure
-```
-
-**3. Test the API:**
-```bash
-curl -X POST http://localhost:5000/ask \
-  -H "Content-Type: application/json" \
-  -d '{"question": "What are symptoms of diabetes?", "session_id": "test"}'
-```
-
----
-
-## Deployment on AWS
-
-The application has been deployed and verified on an AWS EC2 instance. The setup below is what actually runs it.
-
-### Data artifacts on S3
-
-Two files are too large for Git: the FAISS index (384 MB) and the sampled dataset (113 MB). Rather than baking them into the Docker image or committing them, they live in a private S3 bucket and are fetched at startup only when missing locally:
-
-```python
-def ensure_data_files():
-    missing = [f for f in DATA_FILES
-               if not os.path.exists(os.path.join(BASE_DIR, f))]
-    if not missing:
-        return
-    s3 = boto3.client('s3')
-    for filename in missing:
-        s3.download_file(S3_BUCKET, filename, os.path.join(BASE_DIR, filename))
-```
-
-The same code runs unchanged in both environments: locally the files are already present so the download is skipped entirely; on a fresh server they are pulled once. `boto3` resolves credentials from the environment, so no keys appear anywhere in source.
-
-### Server
+The earlier version of the API was deployed and verified on EC2:
 
 | | |
 |---|---|
-| Instance | t3.small (2 GB RAM), Ubuntu, 30 GB gp3 |
-| Region | eu-central-1 |
+| Instance | t3.small (2 GB RAM), Ubuntu, 30 GB gp3, eu-central-1 |
 | Firewall | Security Group restricting ports 22 and 5000 to a single source IP |
-| Runtime | Docker, image pulled from Docker Hub (published by the CI pipeline) |
+| Data | FAISS index and dataset fetched from a private S3 bucket at startup |
+| Runtime | Docker image pulled from Docker Hub |
 
-```bash
-docker run -d \
-  --name icure \
-  -p 5000:5000 \
-  --env-file ~/icure.env \
-  --restart unless-stopped \
-  <username>/icure:latest
-```
+Loading the model and the FAISS index exceeded 2 GB and the container was killed with exit code 137 (OOM, no traceback). A 4 GB swap file resolved it without upgrading the instance — a pragmatic fix for a demo, not a production answer.
 
-### Memory constraint
-
-Loading the sentence-transformer model alongside the FAISS index exceeds 2 GB, and the container was killed on startup with exit code 137 — SIGKILL from the OOM killer, with no exception or traceback, just silence in the logs. A 4 GB swap file resolved it without upgrading the instance:
-
-```bash
-sudo fallocate -l 4G /swapfile
-sudo chmod 600 /swapfile
-sudo mkswap /swapfile
-sudo swapon /swapfile
-echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
-```
-
-Swap sits on disk and is considerably slower than RAM, so this is a pragmatic fix for a demonstration deployment rather than a production answer — a larger instance is the correct solution under real load.
-
----
-
-## Environment Variables
-
-Create a `.env` file with the following:
-
-```
-GEMINI_API_KEY=your_gemini_api_key_here
-```
+Deploying the full Compose stack to EC2 is the next step.
 
 ---
 
 ## CI/CD Pipeline
 
-Every push to `main` automatically:
-1. Checks out the latest code
-2. Authenticates with Docker Hub
-3. Builds the Docker image
-4. Pushes the updated image to Docker Hub
-
-Pipeline defined in: `.github/workflows/docker-build.yml`
+Every push to `main` checks out the code, authenticates with Docker Hub, builds the image, and pushes it. Defined in `.github/workflows/docker-build.yml`.
 
 ---
 
 ## Design Decisions
 
 **Why RAG instead of fine-tuning?**
-Fine-tuning requires significant compute and retraining when data changes. RAG allows updating the knowledge base simply by rebuilding the FAISS index — no retraining needed.
-
-**Why FAISS over a traditional database?**
-Medical questions require semantic understanding, not keyword matching. FAISS finds conceptually similar content even when exact words differ.
+RAG allows updating the knowledge base by rebuilding the FAISS index — no retraining needed.
 
 **Why multilingual embeddings?**
-The dataset is in English while users ask in Arabic. A multilingual model maps both languages into the same vector space, enabling cross-lingual search without translation overhead.
+The dataset is in English while users ask in Arabic. A multilingual model maps both languages into the same vector space, enabling cross-lingual search without a translation step.
 
 **Why query normalization before search?**
-Follow-up questions like "How do I treat it?" contain no medical content for FAISS to match. Normalization rewrites them as standalone questions before retrieval.
+Follow-ups like "How do I treat it?" contain nothing for FAISS to match. Normalization rewrites them as standalone questions first.
 
-**Why session memory is server-side?**
-Putting history management on the server keeps the client API simple — users only send their current question and a session ID.
+**Why conversations in PostgreSQL instead of server memory?**
+The first version kept history in a Python dictionary: it was lost on every restart, could not work across more than one worker, and was not tied to any user. Storing conversations in the database fixes all three, and made the sidebar possible without redesign.
 
-**Why vanilla JavaScript for the frontend?**
-The interface is a single page with minimal state. React would have added a build step and a dependency tree without solving a problem the project actually has.
+**Why every query filters by `user_id`?**
+Filtering by conversation id alone would let any user read another's conversation by guessing ids (IDOR). Unguessable ids are not a fix, since ids leak through logs and URLs — ownership is checked in every query instead.
 
-**Why per-message direction detection?**
-The page is RTL, but the model answers in the language of the question. An English answer rendered inside an RTL container places its punctuation incorrectly, so each message is checked for Arabic characters and given its own direction.
+**Why Nginx in front of the API?**
+It serves the frontend and the API from the same origin, removing the need for CORS in the deployed stack, and it is the natural place to add HTTPS later.
 
----
-
-## Sample Interactions
-
-**Arabic question:**
-```
-Q: ما هي أعراض فقر الدم؟
-A: تشمل أعراض فقر الدم: التعب والإرهاق العام، شحوب الوجه والجفون،
-   الدوخة، ضيق التنفس، تسارع ضربات القلب...
-```
-
-**English question:**
-```
-Q: What causes high blood pressure?
-A: High blood pressure can be caused by genetic factors, high-sodium diet,
-   obesity, stress, smoking, and certain medical conditions...
-```
-
-**Follow-up question (session memory):**
-```
-Q: ما هي أعراض فقر الدم؟  → [detailed answer]
-Q: كيف أعالجها؟           → [treatment for anemia — context resolved automatically]
-```
-
-**Out-of-scope question:**
-```
-Q: What is the best restaurant in Amman?
-A: I don't have enough information about this topic.
-   Always consult a doctor for medical decisions.
-```
+**Why vanilla JavaScript?**
+One page with modest state. A framework would add a build step and a dependency tree without solving a problem the project has.
 
 ---
 
 ## Known Limitations & Roadmap
 
-Current constraints, and what's planned next:
-
-- **Session storage is in-process** — conversation history lives in a Python dictionary, so it is lost on restart and will not work across multiple instances. Redis is the planned replacement.
-- **CORS is open to all origins** — appropriate for local development, but should be restricted to a specific domain before any public deployment.
-- **No automated tests yet** — the CI pipeline builds the image but does not verify behaviour. Adding pytest coverage to the workflow is the next step.
-- **Running on swap** — the deployed instance relies on a swap file to fit the model and index in memory. It works, but response times suffer; a larger instance is the correct fix.
-- **Single instance, no load balancing** — the deployment is a single EC2 instance with no redundancy or autoscaling.
+- **No rate limiting on `/login`** — passwords are hashed with bcrypt, but repeated attempts are not throttled yet.
+- **Tokens stored in `localStorage`** — simple, but readable by any script on the page if an XSS bug ever existed. All rendering uses `textContent` to reduce that risk; httpOnly cookies are the stronger option.
+- **Access tokens cannot be revoked early** — after logout, an access token remains valid for up to 15 minutes. This is the accepted trade-off of stateless JWTs.
+- **Registration reveals existing emails** (`409`) — fully hiding it needs email verification.
+- **CORS is open to all origins** — needed only for opening the frontend from disk during development.
+- **No automated tests yet** — the CI pipeline builds the image but does not verify behaviour. pytest in CI is next.
+- **Gemini free tier** — when the daily quota is exhausted, `/ask` returns `503`.
+- **No HTTPS yet** — planned with Nginx and a certificate on the deployed server.
+- **Single instance** — no redundancy or autoscaling.
 
 ---
 
