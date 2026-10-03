@@ -407,8 +407,8 @@
   </div>
 
   <script>
-    const API_URL = "http://localhost:5000";
-
+    const API_URL = location.protocol === "file:" ? "http://localhost:5000" : "/api";
+    
     // ---------- State ----------
     let conversationId = null;
     let authMode = "login";          // "login" | "register"

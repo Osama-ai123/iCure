@@ -14,4 +14,5 @@ lesson 3/
 flask_guide_osama.docx
 *.docx
 test_db.py
+/data
 ~$*

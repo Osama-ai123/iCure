@@ -11,6 +11,7 @@ import boto3
 warnings.filterwarnings('ignore')
 os.environ['HF_HUB_DISABLE_IMPLICIT_TOKEN'] = '1'
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.getenv("DATA_DIR", os.path.join(BASE_DIR, "data"))
 
 
 load_dotenv()
@@ -23,9 +24,10 @@ DATA_FILES = ['faiss_index.bin', 'ample_data_250K.csv']
 
 def ensure_data_files():
     """ينزّل ملفات البيانات من S3 إذا مش موجودة محلياً."""
+    os.makedirs(DATA_DIR, exist_ok=True)
     missing = [
         f for f in DATA_FILES
-        if not os.path.exists(os.path.join(BASE_DIR, f))
+        if not os.path.exists(os.path.join(DATA_DIR, f))
     ]
 
     if not missing:
@@ -35,7 +37,7 @@ def ensure_data_files():
     s3 = boto3.client('s3')
 
     for filename in missing:
-        destination = os.path.join(BASE_DIR, filename)
+        destination = os.path.join(DATA_DIR, filename)
         print(f"Downloading {filename}...")
         s3.download_file(S3_BUCKET, filename, destination)
         print(f"Downloaded {filename}")
@@ -46,8 +48,8 @@ ensure_data_files()
 
 print("Loading model and index...")
 embedding_model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
-index = faiss.read_index(os.path.join(BASE_DIR, 'faiss_index.bin'))
-df = pd.read_csv(os.path.join(BASE_DIR, 'ample_data_250K.csv'))
+index = faiss.read_index(os.path.join(DATA_DIR, 'faiss_index.bin'))
+df = pd.read_csv(os.path.join(DATA_DIR, 'ample_data_250K.csv'))
 print("Ready!")
 
 def search(question, top_k=5):
@@ -62,7 +64,8 @@ def search(question, top_k=5):
         })
     return results
 
-def ask(question, history=[], retries=3):
+def ask(question, history=None, retries=3):
+    history = history or []
     
     # دايماً نطلب من Gemini يوضح ويوحّد المصطلحات
     history_text = ""
@@ -133,12 +136,12 @@ Answer:"""
                 contents=prompt
             )
             return response.text
-        except Exception as e:
+        except Exception:
             if attempt < retries - 1:
                 print(f"Retrying... ({attempt + 1}/{retries})")
                 time.sleep(5)
             else:
-                return "Service temporarily unavailable. Please try again later."
+                raise
 # اختبار
 if __name__ == "__main__":
     questions = [
